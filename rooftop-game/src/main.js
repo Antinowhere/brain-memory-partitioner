@@ -108,7 +108,7 @@ let debugMode = new URLSearchParams(location.search).has('debug');
 let keypadUI = null;
 let riding = false;
 let cinematic = false; // busted / fell / finale transitions
-let mash = { active: false, progress: 0 };
+let pushingGrate = false;
 
 const companion = () => (state.currentChar === 'chase' ? npcs.pav : npcs.chase);
 const companionName = () => (state.currentChar === 'chase' ? 'Pav' : 'Chase');
@@ -340,27 +340,22 @@ on('elevator:ride', () => {
   }, 700);
 });
 
-// ------------------------------------------------------- mash the grate
+// ------------------------------------------------------- push the grate
+// One press: the whole crew shoves together, then it bursts open.
 on('mash', () => {
-  if (state.grateOpen) return;
-  if (!mash.active) {
-    mash.active = true;
-    ui.showMash();
-    bark('mash_start');
-  }
-  mash.progress += 0.085;
+  if (state.grateOpen || pushingGrate) return;
+  pushingGrate = true;
+  bark('mash_start');
   audio.mashThud();
-  if (mash.progress > 0.5 && !mash.midSaid) { mash.midSaid = true; bark('mash_mid'); }
-  if (mash.progress >= 1) {
-    mash.active = false;
-    ui.hideMash();
+  setTimeout(() => audio.mashThud(), 450);
+  setTimeout(() => audio.mashThud(), 850);
+  setTimeout(() => {
     state.grateOpen = true;
     world.removeCollider(world.dynamic.grate.collider);
     audio.grateBurst();
     emit('grate');
     bark('grate');
-  }
-  ui.setMash(mash.progress);
+  }, 1200);
 });
 
 // ------------------------------------------------------- roof + spire story
@@ -502,7 +497,7 @@ function tick() {
   elapsed += dt;
 
   player.enabled = controlsActive();
-  interact.enabled = controlsActive() && !mash.active;
+  interact.enabled = controlsActive();
 
   player.update(dt, world);
   const comp = companion();
@@ -519,12 +514,6 @@ function tick() {
   }
   effects.update(dt, elapsed, camera, state.zone);
   interact.update();
-
-  // mash decay + companion assist
-  if (mash.active && !state.grateOpen) {
-    mash.progress = Math.max(0, mash.progress - dt * 0.055 + dt * 0.02);
-    ui.setMash(mash.progress);
-  }
 
   if (started) {
     for (const tr of triggers) {

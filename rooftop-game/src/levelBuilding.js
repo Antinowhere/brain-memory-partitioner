@@ -667,7 +667,7 @@ function buildVentRoute(w, m) {
   w.dynamic.grate = { group: grate, collider: grateCollider, openT: 0 };
   w.interactable(grate, () => {
     if (state.grateOpen) return null;
-    return 'PUSH the grate — mash [E]';
+    return 'Push the grate open — together';
   }, () => emit('mash'));
   w.updaters.push((dt) => {
     const g = w.dynamic.grate;
