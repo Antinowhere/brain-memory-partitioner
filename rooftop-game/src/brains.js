@@ -95,7 +95,7 @@ function hint() {
   if (!state.mechDoorOpen) return "Up the stairs, swipe at the top. And there's a guard pacing the landing — wait for his back.";
   if (!state.grateOpen) {
     if (!state.inDuct) return "Star room, east point — big vent box with a ladder on it. Up, then get low and crawl. Hold C.";
-    return "Get under the grate and PUSH. All of us. Mash E like it owes you money.";
+    return "Climb up under the grate and give it one good shove. All of us, together.";
   }
   if (!state.outside) return "Climb out. Roof's right there.";
   if (!state.crossedCatwalk) return "The catwalk. Across the gap, to the tower. Don't look down — actually no, definitely look down.";
@@ -162,8 +162,7 @@ export const BARKS = {
   vent: ['PAV', "East point — that big vent box. Ladder's on the side. Up you go, then get LOW. Hold C."],
   duct: ['PAV', "Tight fit. I'll squeeze through after you — go, go."],
   lightwell: ['CHASE', "…Snow. Coming straight down. We're close."],
-  mash_start: ['PAV', "Grate's rusted into next year. Get under it — on three we PUSH. Mash E! PUSH!"],
-  mash_mid: ['PAV', "It's moving! Don't stop — PUSH!"],
+  mash_start: ['PAV', "Grate's rusted into next year. All together — on three. One… two… PUSH!"],
   grate: ['PAV', "THERE it goes! Ha! Up, up, up!"],
   outside: ['PAV', "…Okay. Okay okay okay. The hole. The tower. The SIGN. Nobody back home is believing one word of this."],
   hole: ['PAV', "That hole goes down further than this building does. That's not architecture, that's an appetite."],

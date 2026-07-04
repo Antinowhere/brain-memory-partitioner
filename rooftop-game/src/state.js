@@ -71,7 +71,7 @@ export function currentObjective() {
   }
   if (!state.grateOpen) {
     if (!state.inDuct) return 'Find a way up to the roof — check the ventilation in the star corners.';
-    return 'That grate won\'t move alone. Get under it and PUSH — mash [E].';
+    return 'Climb up to the stuck grate and push it open together. [E]';
   }
   if (!state.outside) return 'Climb out onto the roof.';
   if (!state.crossedCatwalk) return '…What is this? Cross the catwalk to the spire.';

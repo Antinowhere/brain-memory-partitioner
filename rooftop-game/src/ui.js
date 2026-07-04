@@ -15,8 +15,6 @@ export const els = {
   chatinput: $('chatinput'),
   chathint: $('chathint'),
   charhud: $('charhud'),
-  mashwrap: $('mashwrap'),
-  mashfill: $('mashfill'),
   modal: $('modal'),
   modalBox: $('modal-box'),
   fade: $('fade'),
@@ -49,11 +47,6 @@ export function toast(text, ms = 2600) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => (els.toast.style.opacity = 0), ms);
 }
-
-// -------------------------------------------------------------------- mash
-export function showMash() { els.mashwrap.classList.remove('hidden'); }
-export function setMash(v) { els.mashfill.style.width = `${Math.round(v * 100)}%`; }
-export function hideMash() { els.mashwrap.classList.add('hidden'); }
 
 // ---------------------------------------------------------------- chat log
 const MAX_MSGS = 6;
