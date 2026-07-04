@@ -1,5 +1,6 @@
 // First-person controller: pointer-lock look, WASD, run, jump, crouch,
-// AABB collision against world colliders, floor regions, ladder climbing.
+// AABB collision + angled wall segments (star room), step-up (stairs),
+// ladder volumes, floor regions, and a rappel mode for the finale.
 import * as THREE from 'three';
 
 const GRAVITY = 20;
@@ -8,13 +9,14 @@ const EYE_CROUCH = 1.12;
 const HEIGHT_STAND = 1.82;
 const HEIGHT_CROUCH = 1.24;
 const RADIUS = 0.34;
+const STEP_UP = 0.45;
 
 export class Player {
   constructor(camera) {
     this.camera = camera;
-    this.pos = new THREE.Vector3(0, EYE_STAND, 2.5);
+    this.pos = new THREE.Vector3(0, EYE_STAND, 20);
     this.vel = new THREE.Vector3();
-    this.yaw = Math.PI; // face -z? camera default -z at yaw 0; PI faces +z. Start looking at the desk (+z), then turn.
+    this.yaw = 0; // facing -z, toward the tower
     this.pitch = 0;
     this.crouched = false;
     this.grounded = true;
@@ -22,6 +24,7 @@ export class Player {
     this.enabled = false;
     this.keys = {};
     this.headBob = 0;
+    this.rappel = null; // { x, z, t }
 
     document.addEventListener('keydown', (e) => { this.keys[e.code] = true; });
     document.addEventListener('keyup', (e) => { this.keys[e.code] = false; });
@@ -45,6 +48,15 @@ export class Player {
     if (yaw !== null) this.yaw = yaw;
   }
 
+  startRappel(x, z) {
+    this.rappel = { x, z, t: 0 };
+    this.crouched = false;
+    this.pos.x = x; this.pos.z = z;
+    this.vel.set(0, 0, 0);
+  }
+
+  stopRappel() { this.rappel = null; }
+
   aabbAt(px, py, pz) {
     const feet = py - this.eyeHeight;
     return {
@@ -61,21 +73,31 @@ export class Player {
   }
 
   update(dt, world) {
-    if (!this.enabled) {
+    if (!this.enabled) { this.syncCamera(0); return; }
+    dt = Math.min(dt, 0.05);
+    const k = this.keys;
+
+    // ---- rappel mode: locked to the line, W brakes, S drops faster ----
+    if (this.rappel) {
+      this.rappel.t += dt;
+      const base = -3.2;
+      let vy = base;
+      if (k['KeyW']) vy = -0.6;
+      if (k['KeyS']) vy = -7.5;
+      this.pos.y += vy * dt;
+      this.pos.x = this.rappel.x + Math.sin(this.rappel.t * 0.9) * 0.22;
+      this.pos.z = this.rappel.z + Math.cos(this.rappel.t * 0.7) * 0.18;
+      this.grounded = false;
       this.syncCamera(0);
       return;
     }
-    dt = Math.min(dt, 0.05);
-    const k = this.keys;
 
     // crouch (hold C)
     const wantCrouch = !!k['KeyC'];
     if (wantCrouch !== this.crouched) {
       if (wantCrouch) this.crouched = true;
       else {
-        // only stand if there is headroom
         const test = this.aabbAt(this.pos.x, this.pos.y + (EYE_STAND - EYE_CROUCH), this.pos.z);
-        // temporarily use standing dims
         test.maxY = test.minY + HEIGHT_STAND;
         let blocked = false;
         for (const c of world.colliders) if (this.overlaps(test, c.box)) { blocked = true; break; }
@@ -90,24 +112,19 @@ export class Player {
     const speed = this.crouched ? 2.0 : running ? 7.0 : 4.3;
 
     const sin = Math.sin(this.yaw), cos = Math.cos(this.yaw);
-    // camera forward on ground plane: (-sin(yaw), -cos(yaw)) for three.js yaw convention
     const dirX = (-sin * fwd) + (cos * strafe);
     const dirZ = (-cos * fwd) + (-sin * strafe);
     const len = Math.hypot(dirX, dirZ) || 1;
     const tx = (dirX / len) * speed * (fwd || strafe ? 1 : 0);
     const tz = (dirZ / len) * speed * (fwd || strafe ? 1 : 0);
-    // snappy accel
     const accel = this.grounded || this.onLadder ? 14 : 4;
     this.vel.x = THREE.MathUtils.damp(this.vel.x, tx, accel, dt);
     this.vel.z = THREE.MathUtils.damp(this.vel.z, tz, accel, dt);
 
-    // ladder check
-    this.onLadder = world.ladderZone &&
-      world.ladderZone.containsPoint(new THREE.Vector3(this.pos.x, this.pos.y - 0.5, this.pos.z));
+    this.onLadder = world.inLadder(this.pos.x, this.pos.y - 0.5, this.pos.z);
 
     if (this.onLadder) {
-      this.vel.y = fwd > 0 ? 3.0 : (k['KeyS'] ? -3.0 : (k['Space'] ? 3.0 : 0));
-      // damp horizontal drift on the ladder
+      this.vel.y = fwd > 0 || k['Space'] ? 3.0 : (k['KeyS'] ? -3.0 : 0);
       this.vel.x *= 0.6; this.vel.z *= 0.6;
     } else {
       this.vel.y -= GRAVITY * dt;
@@ -117,33 +134,65 @@ export class Player {
       }
     }
 
-    // integrate + resolve per axis
     this.moveAxis(world, 'x', this.vel.x * dt);
     this.moveAxis(world, 'z', this.vel.z * dt);
+    this.resolveWallSegs(world);
     this.moveVertical(world, dt);
 
-    // head bob
     const planar = Math.hypot(this.vel.x, this.vel.z);
     if (this.grounded && planar > 0.5) this.headBob += dt * planar * 1.6;
     this.syncCamera(planar);
+  }
+
+  tryStepUp(world, next, top) {
+    // step onto low obstacles (stairs, curbs) when there's headroom
+    const rise = top - (next.y - this.eyeHeight);
+    if (rise <= 0 || rise > STEP_UP || (!this.grounded && !this.onLadder)) return false;
+    const test = this.aabbAt(next.x, next.y + rise + 0.02, next.z);
+    for (const c of world.colliders) if (this.overlaps(test, c.box)) return false;
+    next.y += rise + 0.02;
+    return true;
   }
 
   moveAxis(world, axis, delta) {
     if (delta === 0) return;
     const next = { x: this.pos.x, y: this.pos.y, z: this.pos.z };
     next[axis] += delta;
-    const box = this.aabbAt(next.x, next.y, next.z);
+    let box = this.aabbAt(next.x, next.y, next.z);
     for (const c of world.colliders) {
       if (!this.overlaps(box, c.box)) continue;
-      // allow stepping over very low obstacles is skipped; simple push-back:
+      if (this.tryStepUp(world, next, c.box.max.y)) {
+        box = this.aabbAt(next.x, next.y, next.z);
+        continue;
+      }
       if (delta > 0) next[axis] = (axis === 'x' ? c.box.min.x : c.box.min.z) - RADIUS - 0.001;
       else next[axis] = (axis === 'x' ? c.box.max.x : c.box.max.z) + RADIUS + 0.001;
-      // recompute box for subsequent colliders
-      box.minX = next.x - RADIUS; box.maxX = next.x + RADIUS;
-      box.minZ = next.z - RADIUS; box.maxZ = next.z + RADIUS;
+      box = this.aabbAt(next.x, next.y, next.z);
       if (axis === 'x') this.vel.x = 0; else this.vel.z = 0;
     }
-    this.pos.x = next.x; this.pos.z = next.z;
+    this.pos.x = next.x; this.pos.y = next.y; this.pos.z = next.z;
+  }
+
+  resolveWallSegs(world) {
+    const feet = this.feet, head = feet + this.height;
+    for (const s of world.wallSegs) {
+      if (head < s.ymin || feet > s.ymax) continue;
+      // closest point on segment to player (2D)
+      const abx = s.bx - s.ax, abz = s.bz - s.az;
+      const l2 = abx * abx + abz * abz || 1;
+      let t = ((this.pos.x - s.ax) * abx + (this.pos.z - s.az) * abz) / l2;
+      t = THREE.MathUtils.clamp(t, 0, 1);
+      const cx = s.ax + abx * t, cz = s.az + abz * t;
+      let dx = this.pos.x - cx, dz = this.pos.z - cz;
+      const d = Math.hypot(dx, dz);
+      const min = RADIUS + 0.18; // half wall thickness
+      if (d >= min || d === 0) continue;
+      dx /= d; dz /= d;
+      this.pos.x = cx + dx * min;
+      this.pos.z = cz + dz * min;
+      const vn = this.vel.x * dx + this.vel.z * dz;
+      if (vn < 0) { this.vel.x -= vn * dx; this.vel.z -= vn * dz; }
+    }
   }
 
   moveVertical(world, dt) {
@@ -153,7 +202,6 @@ export class Player {
     let newFeet = newY - this.eyeHeight;
     let landed = false;
 
-    // floor regions
     const ground = world.groundHeightAt(this.pos.x, this.pos.z, prevFeet);
     if (this.vel.y <= 0 && newFeet <= ground && prevFeet >= ground - 0.35) {
       newY = ground + this.eyeHeight;
@@ -161,7 +209,6 @@ export class Player {
       landed = true;
     }
 
-    // collider tops (land) and bottoms (head bump)
     if (!landed) {
       const box = this.aabbAt(this.pos.x, newY, this.pos.z);
       for (const c of world.colliders) {

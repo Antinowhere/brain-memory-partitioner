@@ -51,6 +51,71 @@ export function init() {
 
 export function resume() { if (ctx && ctx.state === 'suspended') ctx.resume(); }
 
+// Wind/hum blend per zone instead of a binary outside flag.
+export function setZone(zone) {
+  if (!ctx) return;
+  const t = ctx.currentTime;
+  const wind = { street: 0.09, lightwell: 0.13, roof: 0.24, spire: 0.3 }[zone] ?? 0.0;
+  const hum = { lobby: 0.02, office: 0.014, stairs: 0.018, mech: 0.034 }[zone] ?? 0.006;
+  nodes.windGain.gain.setTargetAtTime(wind, t, 1.2);
+  nodes.hum.gain.setTargetAtTime(hum, t, 0.8);
+}
+
+// ---- the track that plays only at the top of the spire ----
+let music = null;
+export function playSpireTrack() {
+  if (music) return;
+  music = new Audio('/audio/spire.mp3');
+  music.volume = 0;
+  music.play().catch(() => { music = null; });
+  if (!music) return;
+  const fade = setInterval(() => {
+    if (!music) return clearInterval(fade);
+    music.volume = Math.min(0.85, music.volume + 0.03);
+    if (music.volume >= 0.85) clearInterval(fade);
+  }, 120);
+  // duck the wind a little under the music
+  if (ctx) nodes.windGain.gain.setTargetAtTime(0.12, ctx.currentTime, 2);
+}
+
+// ---- security ----
+export function cctvChirp() {
+  blip(1900, 0.09, 'square', 0.07);
+  setTimeout(() => blip(1900, 0.09, 'square', 0.07), 180);
+  setTimeout(() => blip(2300, 0.14, 'square', 0.07), 380);
+}
+
+export function spottedSting() {
+  if (!ctx) return;
+  const o = ctx.createOscillator(); o.type = 'sawtooth';
+  o.frequency.setValueAtTime(140, ctx.currentTime);
+  o.frequency.exponentialRampToValueAtTime(70, ctx.currentTime + 0.5);
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.22, ctx.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.6);
+  o.connect(g); g.connect(master);
+  o.start(); o.stop(ctx.currentTime + 0.6);
+}
+
+export function elevatorDing() { blip(1050, 0.35, 'sine', 0.1); setTimeout(() => blip(880, 0.4, 'sine', 0.08), 200); }
+
+export function elevatorRumble(seconds = 7) {
+  if (!ctx) return;
+  const src = ctx.createBufferSource(); src.buffer = noiseBuffer(seconds); src.loop = false;
+  src.playbackRate.value = 0.25;
+  const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 90;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, ctx.currentTime);
+  g.gain.linearRampToValueAtTime(0.16, ctx.currentTime + 0.8);
+  g.gain.setValueAtTime(0.16, ctx.currentTime + seconds - 1);
+  g.gain.linearRampToValueAtTime(0.0001, ctx.currentTime + seconds);
+  src.connect(f); f.connect(g); g.connect(master);
+  src.start();
+}
+
+export function mashThud() { thud(0.12, 200 + Math.random() * 80); }
+export function grateBurst() { thud(0.4, 120); setTimeout(() => metalCreak(), 120); setTimeout(() => thud(0.3, 70), 350); }
+
 export function setFan(speed01) { // 0..1
   if (!ctx) return;
   const t = ctx.currentTime;
